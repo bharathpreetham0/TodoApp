@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:uuid/uuid.dart';
+import 'package:drift/drift.dart';
 
 import '../../../data/models/note_model.dart';
 import '../../../data/database/app_database.dart';
@@ -87,15 +88,56 @@ class NotesCubit extends Cubit<NotesState> {
   Future<void> loadNotes({String? category, String sortBy = 'date'}) async {
     emit(NotesLoading());
     try {
-      // TODO: Implement actual database query once generated code is available
-      // For now, return empty list
+      List<Note> driftNotes;
+      
+      if (category != null) {
+        // Filter by category
+        driftNotes = await (_database.select(_database.notes)
+              ..where((n) => n.category.equals(category))
+              ..orderBy([(n) => _getSortOrder(sortBy, n)]))
+            .get();
+      } else {
+        // Get all notes
+        driftNotes = await (_database.select(_database.notes)
+              ..orderBy([(n) => _getSortOrder(sortBy, n)]))
+            .get();
+      }
+      
+      // Convert Drift Note objects to NoteModel objects
+      final notes = driftNotes.map((driftNote) => NoteModel(
+        id: driftNote.id,
+        title: driftNote.title,
+        content: driftNote.content,
+        summary: driftNote.summary,
+        category: driftNote.category,
+        tags: driftNote.tags?.split(',').where((tag) => tag.isNotEmpty).toList() ?? [],
+        createdAt: driftNote.createdAt,
+        updatedAt: driftNote.updatedAt,
+        isEncrypted: driftNote.isEncrypted,
+        isFavorite: driftNote.isFavorite,
+        isArchived: driftNote.isArchived,
+      )).toList();
+      
       emit(NotesLoaded(
-        notes: [],
+        notes: notes,
         filterCategory: category,
         sortBy: sortBy,
       ));
     } catch (e) {
       emit(NotesError('Failed to load notes: $e'));
+    }
+  }
+
+  /// Helper method to get sort order
+  OrderingTerm _getSortOrder(String sortBy, $NotesTable n) {
+    switch (sortBy) {
+      case 'title':
+        return OrderingTerm.asc(n.title);
+      case 'updated':
+        return OrderingTerm.desc(n.updatedAt);
+      case 'date':
+      default:
+        return OrderingTerm.desc(n.createdAt);
     }
   }
 
@@ -143,8 +185,21 @@ class NotesCubit extends Cubit<NotesState> {
         isEncrypted: encrypt,
       );
 
-      // TODO: Insert into database once generated code is available
-      // await _database.insertNote(note);
+      // Insert into database
+      await _database.into(_database.notes).insert(NotesCompanion.insert(
+        id: note.id,
+        title: note.title,
+        content: encrypt ? '' : note.content, // Store empty content if encrypted
+        encryptedContent: encrypt ? Value(await _encryptionService.encryptText(content)) : const Value.absent(),
+        summary: Value.ofNullable(note.summary),
+        category: Value.ofNullable(note.category),
+        tags: Value.ofNullable(note.tags.join(',')),
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        isEncrypted: Value(note.isEncrypted),
+        isFavorite: Value(note.isFavorite),
+        isArchived: Value(note.isArchived),
+      ));
 
       // Extract tasks if content has actionable items
       if (_aiService.isEnabled && content.isNotEmpty) {
@@ -174,7 +229,20 @@ class NotesCubit extends Cubit<NotesState> {
     emit(const NoteOperationInProgress('Updating note...'));
     
     try {
-      // TODO: Implement database update once generated code is available
+      final updateCompanion = NotesCompanion(
+        id: Value(id),
+        title: title != null ? Value(title) : const Value.absent(),
+        content: content != null ? Value(content) : const Value.absent(),
+        summary: summary != null ? Value(summary) : const Value.absent(),
+        category: category != null ? Value(category) : const Value.absent(),
+        tags: tags != null ? Value(tags.join(',')) : const Value.absent(),
+        updatedAt: Value(DateTime.now()),
+        isFavorite: isFavorite != null ? Value(isFavorite) : const Value.absent(),
+        isArchived: isArchived != null ? Value(isArchived) : const Value.absent(),
+      );
+
+      await (_database.update(_database.notes)
+        ..where((n) => n.id.equals(id))).write(updateCompanion);
       
       await loadNotes();
     } catch (e) {
@@ -187,7 +255,8 @@ class NotesCubit extends Cubit<NotesState> {
     emit(const NoteOperationInProgress('Deleting note...'));
     
     try {
-      // TODO: Implement database delete once generated code is available
+      await (_database.delete(_database.notes)
+        ..where((n) => n.id.equals(id))).go();
       
       await loadNotes();
     } catch (e) {

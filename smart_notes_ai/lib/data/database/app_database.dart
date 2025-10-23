@@ -1,9 +1,10 @@
-import 'dart:io';
+import 'dart:io' show File;
+import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
+import 'connection/connection.dart';
 import 'tables/notes_table.dart';
 import 'tables/tasks_table.dart';
 import 'tables/reminders_table.dart';
@@ -16,7 +17,7 @@ part 'app_database.g.dart';
   tables: [Notes, Tasks, Reminders, Embeddings],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_openConnection());
+  AppDatabase() : super(connect());
 
   @override
   int get schemaVersion => 1;
@@ -178,13 +179,4 @@ class NoteWithTaskCount {
       completedTasks: completedTasks ?? this.completedTasks,
     );
   }
-}
-
-/// Database connection setup
-LazyDatabase _openConnection() {
-  return LazyDatabase(() async {
-    final dbFolder = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder.path, 'smart_notes.db'));
-    return NativeDatabase(file);
-  });
 }

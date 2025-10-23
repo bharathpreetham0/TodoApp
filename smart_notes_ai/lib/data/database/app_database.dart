@@ -28,38 +28,42 @@ class AppDatabase extends _$AppDatabase {
       onCreate: (Migrator m) async {
         await m.createAll();
         
-        // Create full-text search virtual table for notes
-        await customStatement('''
-          CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-            title, 
-            content, 
-            summary,
-            content=notes,
-            content_rowid=rowid
-          );
-        ''');
-        
-        // Create triggers to keep FTS table in sync
-        await customStatement('''
-          CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
-            INSERT INTO notes_fts(rowid, title, content, summary)
-            VALUES (new.rowid, new.title, new.content, new.summary);
-          END;
-        ''');
-        
-        await customStatement('''
-          CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
-            UPDATE notes_fts 
-            SET title = new.title, content = new.content, summary = new.summary
-            WHERE rowid = new.rowid;
-          END;
-        ''');
-        
-        await customStatement('''
-          CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
-            DELETE FROM notes_fts WHERE rowid = old.rowid;
-          END;
-        ''');
+        // Only create FTS5 on native platforms (not web)
+        // Web version of sql.js doesn't include FTS5 by default
+        if (!kIsWeb) {
+          // Create full-text search virtual table for notes
+          await customStatement('''
+            CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+              title, 
+              content, 
+              summary,
+              content=notes,
+              content_rowid=rowid
+            );
+          ''');
+          
+          // Create triggers to keep FTS table in sync
+          await customStatement('''
+            CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
+              INSERT INTO notes_fts(rowid, title, content, summary)
+              VALUES (new.rowid, new.title, new.content, new.summary);
+            END;
+          ''');
+          
+          await customStatement('''
+            CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+              UPDATE notes_fts 
+              SET title = new.title, content = new.content, summary = new.summary
+              WHERE rowid = new.rowid;
+            END;
+          ''');
+          
+          await customStatement('''
+            CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+              DELETE FROM notes_fts WHERE rowid = old.rowid;
+            END;
+          ''');
+        }
         
         // Create indexes for better query performance
         await customStatement('CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at DESC);');
@@ -78,19 +82,35 @@ class AppDatabase extends _$AppDatabase {
   Future<List<Note>> searchNotes(String query) async {
     if (query.isEmpty) return [];
     
-    final results = await customSelect(
-      '''
-      SELECT n.* FROM notes n
-      JOIN notes_fts fts ON n.rowid = fts.rowid
-      WHERE notes_fts MATCH ?
-      ORDER BY rank
-      LIMIT 50
-      ''',
-      variables: [Variable.withString(query)],
-      readsFrom: {notes},
-    ).get();
+    // Use FTS5 on native platforms, fallback to LIKE on web
+    if (kIsWeb) {
+      // Simple LIKE-based search for web (no FTS5)
+      final queryPattern = '%$query%';
+      return (select(notes)
+        ..where((n) => 
+          n.title.like(queryPattern) | 
+          n.content.like(queryPattern) |
+          n.summary.like(queryPattern)
+        )
+        ..orderBy([(n) => OrderingTerm.desc(n.createdAt)])
+        ..limit(50)
+      ).get();
+    } else {
+      // FTS5-based search for native platforms
+      final results = await customSelect(
+        '''
+        SELECT n.* FROM notes n
+        JOIN notes_fts fts ON n.rowid = fts.rowid
+        WHERE notes_fts MATCH ?
+        ORDER BY rank
+        LIMIT 50
+        ''',
+        variables: [Variable.withString(query)],
+        readsFrom: {notes},
+      ).get();
 
-    return results.map((row) => notes.map(row.data)).toList();
+      return results.map((row) => notes.map(row.data)).toList();
+    }
   }
 
   /// Get notes with their task counts

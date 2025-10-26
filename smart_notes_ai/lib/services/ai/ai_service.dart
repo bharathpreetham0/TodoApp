@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
-import '../../native/llama_ffi.dart';
+import '../../native/llama_ffi_platform.dart';
 import 'prompt_templates.dart';
+import 'model_downloader.dart';
+import 'web_ai.dart' if (dart.library.io) 'web_ai_stub.dart';
 
 /// Result of AI summarization
 class SummarizationResult {
@@ -91,18 +94,48 @@ class ExtractedReminder {
 /// Main AI service using llama.cpp
 class AIService {
   final LlamaFFI _llama;
+  final ModelDownloader _modelDownloader;
   final Logger _logger;
+  WebAI? _webAI;
   bool _isEnabled = true;
+  ModelSize? _currentModel;
 
-  AIService({LlamaFFI? llama, Logger? logger})
-      : _llama = llama ?? LlamaFFI(),
+  AIService({
+    LlamaFFI? llama,
+    ModelDownloader? modelDownloader,
+    Logger? logger,
+  })  : _llama = llama ?? LlamaFFI(),
+        _modelDownloader = modelDownloader ?? ModelDownloader(),
         _logger = logger ?? Logger();
 
   /// Initialize the AI service
-  Future<void> initialize() async {
+  Future<void> initialize({ModelSize? preferredModel}) async {
     try {
       _logger.i('Initializing AI service...');
-      await _llama.initialize();
+
+      if (kIsWeb) {
+        // Use WebAI for web platform
+        _webAI = WebAI(logger: _logger);
+        await _webAI!.initialize();
+        _logger.i('AI service initialized for web');
+      } else {
+        // Use llama.cpp for native platforms
+        await _llama.initialize();
+
+        // Try to load a model if available
+        final downloadedModels = await _modelDownloader.getDownloadedModels();
+        
+        if (downloadedModels.isNotEmpty) {
+          final modelToLoad = preferredModel ?? downloadedModels.first;
+          final modelPath = await _modelDownloader.getModelPath(modelToLoad);
+          await _llama.loadModel(modelPath);
+          _currentModel = modelToLoad;
+          _logger.i('AI service initialized with model: ${modelToLoad.displayName}');
+        } else {
+          _logger.w('No models downloaded. AI will use mock responses.');
+        }
+      }
+
       _logger.i('AI service initialized successfully');
     } catch (e) {
       _logger.e('Failed to initialize AI service: $e');
@@ -117,6 +150,40 @@ class AIService {
   /// Enable/disable AI features
   void setEnabled(bool enabled) {
     _isEnabled = enabled;
+  }
+
+  /// Get the model downloader instance
+  ModelDownloader get modelDownloader => _modelDownloader;
+
+  /// Get currently loaded model
+  ModelSize? get currentModel => _currentModel;
+
+  /// Check if a model is available (downloaded or web AI)
+  Future<bool> hasModel() async {
+    if (kIsWeb) return true; // Web AI is always available
+    return (await _modelDownloader.getDownloadedModels()).isNotEmpty;
+  }
+
+  /// Load a specific model
+  Future<void> loadModel(ModelSize size) async {
+    if (kIsWeb) {
+      _logger.w('Model loading not needed on web');
+      return;
+    }
+
+    if (!await _modelDownloader.isModelDownloaded(size)) {
+      throw Exception('Model ${size.displayName} is not downloaded');
+    }
+
+    try {
+      final modelPath = await _modelDownloader.getModelPath(size);
+      await _llama.loadModel(modelPath);
+      _currentModel = size;
+      _logger.i('Switched to model: ${size.displayName}');
+    } catch (e) {
+      _logger.e('Error loading model: $e');
+      rethrow;
+    }
   }
 
   /// Summarize note content
@@ -134,7 +201,7 @@ class AIService {
         user: PromptTemplates.summarizationUser(noteContent),
       );
 
-      final response = await _llama.generate(
+      final response = await _generate(
         prompt: prompt,
         maxTokens: 512,
         temperature: 0.7,
@@ -169,7 +236,7 @@ class AIService {
         user: PromptTemplates.taskExtractionUser(noteContent),
       );
 
-      final response = await _llama.generate(
+      final response = await _generate(
         prompt: prompt,
         maxTokens: 1024,
         temperature: 0.5,
@@ -207,7 +274,7 @@ class AIService {
         user: PromptTemplates.searchUser(query, relevantNotes),
       );
 
-      final response = await _llama.generate(
+      final response = await _generate(
         prompt: prompt,
         maxTokens: 512,
         temperature: 0.5,
@@ -243,7 +310,7 @@ class AIService {
         ),
       );
 
-      final response = await _llama.generate(
+      final response = await _generate(
         prompt: prompt,
         maxTokens: 1024,
         temperature: 0.7,
@@ -271,7 +338,7 @@ class AIService {
         user: PromptTemplates.categorizationUser(noteContent),
       );
 
-      final response = await _llama.generate(
+      final response = await _generate(
         prompt: prompt,
         maxTokens: 256,
         temperature: 0.5,
@@ -290,8 +357,32 @@ class AIService {
     }
   }
 
+  /// Internal method to generate text using appropriate platform implementation
+  Future<String> _generate({
+    required String prompt,
+    int maxTokens = 512,
+    double temperature = 0.7,
+  }) async {
+    if (kIsWeb) {
+      // Use WebAI for web platform
+      return await _webAI!.generate(
+        prompt: prompt,
+        maxTokens: maxTokens,
+        temperature: temperature,
+      );
+    } else {
+      // Use llama.cpp for native platforms
+      return await _llama.generate(
+        prompt: prompt,
+        maxTokens: maxTokens,
+        temperature: temperature,
+      );
+    }
+  }
+
   /// Dispose resources
   void dispose() {
     _llama.dispose();
+    _webAI?.dispose();
   }
 }

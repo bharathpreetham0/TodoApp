@@ -255,4 +255,29 @@ class NotificationService {
       rethrow;
     }
   }
+
+  /// Schedule a task reminder notification
+  Future<void> scheduleTaskReminder({
+    required String taskId,
+    required String title,
+    required String body,
+    required DateTime scheduledDate,
+  }) async {
+    // Use hash code of task ID as notification ID to ensure uniqueness
+    final notificationId = taskId.hashCode;
+    
+    await scheduleReminder(
+      id: notificationId,
+      title: title,
+      body: body,
+      scheduledTime: scheduledDate,
+      payload: 'task:$taskId',
+    );
+  }
+
+  /// Cancel a task reminder notification
+  Future<void> cancelTaskReminder(String taskId) async {
+    final notificationId = taskId.hashCode;
+    await cancelNotification(notificationId);
+  }
 }

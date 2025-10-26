@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:uuid/uuid.dart';
+import 'package:drift/drift.dart';
 
 import '../../../data/models/task_model.dart';
 import '../../../data/database/app_database.dart';
@@ -86,9 +87,38 @@ class TasksCubit extends Cubit<TasksState> {
   }) async {
     emit(TasksLoading());
     try {
-      // TODO: Implement database query once generated code is available
+      // Query tasks from database
+      var query = _database.select(_database.tasks);
+      
+      // Filter by completion status
+      if (!showCompleted) {
+        query = query..where((t) => t.isCompleted.equals(false));
+      }
+      
+      final taskRows = await query.get();
+      
+      // Convert to TaskModel
+      final tasks = taskRows.map((row) {
+        return TaskModel(
+          id: row.id,
+          noteId: row.noteId,
+          description: row.description,
+          dueDate: row.dueDate,
+          priority: TaskPriority.values[row.priority],
+          isCompleted: row.isCompleted,
+          completedAt: row.completedAt,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        );
+      }).toList();
+      
+      // Filter by priority if specified
+      final filteredTasks = priority != null
+          ? tasks.where((t) => t.priority == priority).toList()
+          : tasks;
+      
       emit(TasksLoaded(
-        tasks: [],
+        tasks: filteredTasks,
         showCompleted: showCompleted,
         filterPriority: priority,
       ));
@@ -117,7 +147,16 @@ class TasksCubit extends Cubit<TasksState> {
         updatedAt: now,
       );
 
-      // TODO: Insert into database once generated code is available
+      // Insert into database
+      await _database.into(_database.tasks).insert(TasksCompanion.insert(
+        id: task.id,
+        description: task.description,
+        noteId: Value(task.noteId),
+        dueDate: Value(task.dueDate),
+        priority: Value(task.priority.index),
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      ));
 
       // Create reminder if requested and has due date
       if (createReminder && dueDate != null) {
@@ -144,7 +183,17 @@ class TasksCubit extends Cubit<TasksState> {
     TaskPriority? priority,
   }) async {
     try {
-      // TODO: Implement database update once generated code is available
+      final updateCompanion = TasksCompanion(
+        id: Value(id),
+        description: description != null ? Value(description) : const Value.absent(),
+        dueDate: dueDate != null ? Value(dueDate) : const Value.absent(),
+        priority: priority != null ? Value(priority.index) : const Value.absent(),
+        updatedAt: Value(DateTime.now()),
+      );
+
+      await (_database.update(_database.tasks)
+        ..where((t) => t.id.equals(id))).write(updateCompanion);
+      
       await loadTasks();
     } catch (e) {
       emit(TasksError('Failed to update task: $e'));
@@ -155,7 +204,14 @@ class TasksCubit extends Cubit<TasksState> {
   Future<void> completeTask(String id) async {
     try {
       final now = DateTime.now();
-      // TODO: Update database once generated code is available
+      
+      await (_database.update(_database.tasks)
+        ..where((t) => t.id.equals(id)))
+        .write(TasksCompanion(
+          isCompleted: const Value(true),
+          completedAt: Value(now),
+          updatedAt: Value(now),
+        ));
       
       // Cancel any associated reminders
       await _notificationService.cancelNotification(id.hashCode);
@@ -169,7 +225,14 @@ class TasksCubit extends Cubit<TasksState> {
   /// Uncomplete a task
   Future<void> uncompleteTask(String id) async {
     try {
-      // TODO: Update database once generated code is available
+      await (_database.update(_database.tasks)
+        ..where((t) => t.id.equals(id)))
+        .write(TasksCompanion(
+          isCompleted: const Value(false),
+          completedAt: const Value(null),
+          updatedAt: Value(DateTime.now()),
+        ));
+      
       await loadTasks();
     } catch (e) {
       emit(TasksError('Failed to uncomplete task: $e'));
@@ -179,7 +242,8 @@ class TasksCubit extends Cubit<TasksState> {
   /// Delete task
   Future<void> deleteTask(String id) async {
     try {
-      // TODO: Delete from database once generated code is available
+      await (_database.delete(_database.tasks)
+        ..where((t) => t.id.equals(id))).go();
       
       // Cancel any associated reminders
       await _notificationService.cancelNotification(id.hashCode);

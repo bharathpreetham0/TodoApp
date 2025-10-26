@@ -191,9 +191,9 @@ class NotesCubit extends Cubit<NotesState> {
         title: note.title,
         content: encrypt ? '' : note.content, // Store empty content if encrypted
         encryptedContent: encrypt ? Value(await _encryptionService.encryptText(content)) : const Value.absent(),
-        summary: Value.ofNullable(note.summary),
-        category: Value.ofNullable(note.category),
-        tags: Value.ofNullable(note.tags.join(',')),
+        summary: Value.absentIfNull(note.summary),
+        category: Value.absentIfNull(note.category),
+        tags: Value.absentIfNull(note.tags.isNotEmpty ? note.tags.join(',') : null),
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
         isEncrypted: Value(note.isEncrypted),

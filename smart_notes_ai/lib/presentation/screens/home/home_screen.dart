@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 
 import '../../bloc/notes/notes_cubit.dart';
 import '../../bloc/tasks/tasks_cubit.dart';
@@ -101,17 +102,206 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _showAddTaskDialog() async {
     final descController = TextEditingController();
+    DateTime? selectedDate;
+    TaskPriority selectedPriority = TaskPriority.low;
+    bool createReminder = false;
     
     await showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Add Task'),
-        content: TextField(
-          controller: descController,
-          decoration: const InputDecoration(
-            hintText: 'Task description',
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Add Task'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: descController,
+                  decoration: const InputDecoration(
+                    hintText: 'Task description',
+                    border: OutlineInputBorder(),
+                  ),
+                  autofocus: true,
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 16),
+                const Text('Priority:', style: TextStyle(fontWeight: FontWeight.bold)),
+                DropdownButton<TaskPriority>(
+                  value: selectedPriority,
+                  isExpanded: true,
+                  items: const [
+                    DropdownMenuItem(
+                      value: TaskPriority.low,
+                      child: Text('Low'),
+                    ),
+                    DropdownMenuItem(
+                      value: TaskPriority.medium,
+                      child: Text('Medium'),
+                    ),
+                    DropdownMenuItem(
+                      value: TaskPriority.high,
+                      child: Text('High'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => selectedPriority = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Text('Due Date:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Spacer(),
+                    TextButton.icon(
+                      icon: const Icon(Icons.calendar_today),
+                      label: Text(
+                        selectedDate == null
+                            ? 'Select'
+                            : '${selectedDate!.day}/${selectedDate!.month}/${selectedDate!.year}',
+                      ),
+                      onPressed: () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.now(),
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime.now().add(const Duration(days: 365)),
+                        );
+                        if (date != null) {
+                          setState(() => selectedDate = date);
+                        }
+                      },
+                    ),
+                    if (selectedDate != null)
+                      IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () => setState(() => selectedDate = null),
+                      ),
+                  ],
+                ),
+                if (selectedDate != null)
+                  CheckboxListTile(
+                    title: const Text('Create reminder'),
+                    value: createReminder,
+                    onChanged: (value) {
+                      setState(() => createReminder = value ?? false);
+                    },
+                    contentPadding: EdgeInsets.zero,
+                  ),
+              ],
+            ),
           ),
-          autofocus: true,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (descController.text.isNotEmpty) {
+                  this.context.read<TasksCubit>().createTask(
+                        description: descController.text,
+                        priority: selectedPriority,
+                        dueDate: selectedDate,
+                        createReminder: createReminder,
+                      );
+                }
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Helper function to show edit task dialog
+void _showEditTaskDialog(BuildContext context, TaskModel task) {
+  final descController = TextEditingController(text: task.description);
+  DateTime? selectedDate = task.dueDate;
+  TaskPriority selectedPriority = task.priority;
+  
+  showDialog(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (ctx, setState) => AlertDialog(
+        title: const Text('Edit Task'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(
+                  hintText: 'Task description',
+                  border: OutlineInputBorder(),
+                ),
+                autofocus: true,
+                maxLines: 2,
+              ),
+              const SizedBox(height: 16),
+              const Text('Priority:', style: TextStyle(fontWeight: FontWeight.bold)),
+              DropdownButton<TaskPriority>(
+                value: selectedPriority,
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(
+                    value: TaskPriority.low,
+                    child: Text('Low'),
+                  ),
+                  DropdownMenuItem(
+                    value: TaskPriority.medium,
+                    child: Text('Medium'),
+                  ),
+                  DropdownMenuItem(
+                    value: TaskPriority.high,
+                    child: Text('High'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => selectedPriority = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Text('Due Date:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  TextButton.icon(
+                    icon: const Icon(Icons.calendar_today),
+                    label: Text(
+                      selectedDate == null
+                          ? 'Select'
+                          : '${selectedDate!.day}/${selectedDate!.month}/${selectedDate!.year}',
+                    ),
+                    onPressed: () async {
+                      final date = await showDatePicker(
+                        context: ctx,
+                        initialDate: selectedDate ?? DateTime.now(),
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (date != null) {
+                        setState(() => selectedDate = date);
+                      }
+                    },
+                  ),
+                  if (selectedDate != null)
+                    IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () => setState(() => selectedDate = null),
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -121,18 +311,21 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(
             onPressed: () {
               if (descController.text.isNotEmpty) {
-                context.read<TasksCubit>().createTask(
+                context.read<TasksCubit>().updateTask(
+                      id: task.id,
                       description: descController.text,
+                      priority: selectedPriority,
+                      dueDate: selectedDate,
                     );
               }
               Navigator.of(dialogContext).pop();
             },
-            child: const Text('Add'),
+            child: const Text('Save'),
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
 }
 
 /// Notes list screen
@@ -226,28 +419,71 @@ class NotesListScreen extends StatelessWidget {
               itemCount: state.notes.length,
               itemBuilder: (context, index) {
                 final note = state.notes[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+                return Slidable(
+                  key: ValueKey(note.id),
+                  endActionPane: ActionPane(
+                    motion: const ScrollMotion(),
+                    children: [
+                      SlidableAction(
+                        onPressed: (context) {
+                          context.read<NotesCubit>().toggleFavorite(
+                                note.id,
+                                note.isFavorite,
+                              );
+                        },
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        icon: note.isFavorite ? Icons.star_border : Icons.star,
+                        label: note.isFavorite ? 'Unfavorite' : 'Favorite',
+                      ),
+                      SlidableAction(
+                        onPressed: (context) {
+                          context.read<NotesCubit>().archiveNote(note.id);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Note archived')),
+                          );
+                        },
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                        icon: Icons.archive,
+                        label: 'Archive',
+                      ),
+                      SlidableAction(
+                        onPressed: (context) {
+                          _showDeleteConfirmation(context, note.id, note.title);
+                        },
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        icon: Icons.delete,
+                        label: 'Delete',
+                      ),
+                    ],
                   ),
-                  child: ListTile(
-                    title: Text(
-                      note.title,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                  child: Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
                     ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (note.summary != null) ...[
+                    child: ListTile(
+                      leading: note.isFavorite
+                          ? const Icon(Icons.star, color: Colors.amber, size: 20)
+                          : null,
+                      title: Text(
+                        note.title,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (note.summary != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              note.summary!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                           const SizedBox(height: 4),
-                          Text(
-                            note.summary!,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                        const SizedBox(height: 4),
                         Text(
                           'Updated ${_formatDate(note.updatedAt)}',
                           style: TextStyle(
@@ -257,9 +493,24 @@ class NotesListScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    trailing: note.isEncrypted
-                        ? const Icon(Icons.lock, size: 16)
-                        : null,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (note.isEncrypted)
+                          const Icon(Icons.lock, size: 16),
+                        if (note.category != null) ...[
+                          const SizedBox(width: 4),
+                          Chip(
+                            label: Text(
+                              note.category!,
+                              style: const TextStyle(fontSize: 10),
+                            ),
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                          ),
+                        ],
+                      ],
+                    ),
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
@@ -274,16 +525,44 @@ class NotesListScreen extends StatelessWidget {
                       });
                     },
                   ),
-                );
-              },
+                ),
+              );
+            },
+          );
+        }
+        
+        return const SizedBox();
+      },
+    ),
+  );
+}
+
+void _showDeleteConfirmation(BuildContext context, String noteId, String noteTitle) {
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Delete Note'),
+      content: Text('Are you sure you want to delete "$noteTitle"?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            context.read<NotesCubit>().deleteNote(noteId);
+            Navigator.of(dialogContext).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Note deleted')),
             );
-          }
-          
-          return const SizedBox();
-        },
-      ),
-    );
-  }
+          },
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+}
   
   String _formatDate(DateTime date) {
     final now = DateTime.now();
@@ -373,61 +652,84 @@ class TasksScreen extends StatelessWidget {
               itemCount: tasks.length,
               itemBuilder: (context, index) {
                 final task = tasks[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
-                  ),
-                  child: ListTile(
-                    leading: Checkbox(
-                      value: task.isCompleted,
-                      onChanged: (value) {
-                        context.read<TasksCubit>().toggleTask(
-                              task.id,
-                              task.isCompleted,
-                            );
-                      },
-                    ),
-                    title: Text(
-                      task.description,
-                      style: TextStyle(
-                        decoration: task.isCompleted
-                            ? TextDecoration.lineThrough
-                            : null,
+                return Slidable(
+                  key: ValueKey(task.id),
+                  endActionPane: ActionPane(
+                    motion: const ScrollMotion(),
+                    children: [
+                      SlidableAction(
+                        onPressed: (context) {
+                          _showEditTaskDialog(context, task);
+                        },
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        icon: Icons.edit,
+                        label: 'Edit',
                       ),
+                      SlidableAction(
+                        onPressed: (context) {
+                          context.read<TasksCubit>().deleteTask(task.id);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Task deleted')),
+                          );
+                        },
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        icon: Icons.delete,
+                        label: 'Delete',
+                      ),
+                    ],
+                  ),
+                  child: Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
                     ),
-                    subtitle: task.dueDate != null
-                        ? Text(
-                            'Due: ${task.dueDate!.day}/${task.dueDate!.month}/${task.dueDate!.year}',
-                            style: TextStyle(
-                              color: task.isOverdue
-                                  ? Colors.red
-                                  : Colors.grey[600],
-                            ),
-                          )
-                        : null,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (task.priority == TaskPriority.high)
-                          const Icon(
-                            Icons.priority_high,
-                            color: Colors.red,
-                            size: 20,
-                          )
-                        else if (task.priority == TaskPriority.medium)
-                          Icon(
-                            Icons.circle,
-                            color: Colors.orange,
-                            size: 12,
-                          ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () {
-                            context.read<TasksCubit>().deleteTask(task.id);
-                          },
+                    child: ListTile(
+                      leading: Checkbox(
+                        value: task.isCompleted,
+                        onChanged: (value) {
+                          context.read<TasksCubit>().toggleTask(
+                                task.id,
+                                task.isCompleted,
+                              );
+                        },
+                      ),
+                      title: Text(
+                        task.description,
+                        style: TextStyle(
+                          decoration: task.isCompleted
+                              ? TextDecoration.lineThrough
+                              : null,
                         ),
-                      ],
+                      ),
+                      subtitle: task.dueDate != null
+                          ? Text(
+                              'Due: ${task.dueDate!.day}/${task.dueDate!.month}/${task.dueDate!.year}',
+                              style: TextStyle(
+                                color: task.isOverdue
+                                    ? Colors.red
+                                    : Colors.grey[600],
+                              ),
+                            )
+                          : null,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (task.priority == TaskPriority.high)
+                            const Icon(
+                              Icons.priority_high,
+                              color: Colors.red,
+                              size: 20,
+                            )
+                          else if (task.priority == TaskPriority.medium)
+                            Icon(
+                              Icons.circle,
+                              color: Colors.orange,
+                              size: 12,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -648,7 +950,7 @@ class SettingsScreen extends StatelessWidget {
                     subtitle: const Text('Use on-device AI for summarization and search'),
                     value: state.aiEnabled,
                     onChanged: (value) {
-                      context.read<SettingsCubit>().toggleAI(value);
+                      context.read<SettingsCubit>().setAIEnabled(value);
                     },
                   ),
                   ListTile(
@@ -668,7 +970,7 @@ class SettingsScreen extends StatelessWidget {
                     subtitle: const Text('Protect your notes with encryption'),
                     value: state.encryptionEnabled,
                     onChanged: (value) {
-                      context.read<SettingsCubit>().toggleEncryption(value);
+                      context.read<SettingsCubit>().setEncryptionEnabled(value);
                     },
                   ),
                   SwitchListTile(
@@ -676,7 +978,7 @@ class SettingsScreen extends StatelessWidget {
                     subtitle: const Text('Require fingerprint or face ID'),
                     value: state.biometricEnabled,
                     onChanged: (value) {
-                      context.read<SettingsCubit>().toggleBiometric(value);
+                      context.read<SettingsCubit>().setBiometricEnabled(value);
                     },
                   ),
                 ],
@@ -690,7 +992,7 @@ class SettingsScreen extends StatelessWidget {
                     subtitle: const Text('Get a summary every morning'),
                     value: state.dailyDigestEnabled,
                     onChanged: (value) {
-                      context.read<SettingsCubit>().toggleDailyDigest(value);
+                      context.read<SettingsCubit>().setDailyDigestEnabled(value);
                     },
                   ),
                   SwitchListTile(
@@ -698,7 +1000,7 @@ class SettingsScreen extends StatelessWidget {
                     subtitle: const Text('Notify me about upcoming tasks'),
                     value: state.taskRemindersEnabled,
                     onChanged: (value) {
-                      context.read<SettingsCubit>().toggleTaskReminders(value);
+                      context.read<SettingsCubit>().setNotificationsEnabled(value);
                     },
                   ),
                 ],

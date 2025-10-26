@@ -1,93 +1,111 @@
-import 'dart:io' show Platform;
+import 'dart:io' as dart_io show Platform, File;
+import 'dart:ffi' as ffi;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:logger/logger.dart';
 
 /// FFI bindings for llama.cpp
 class LlamaFFI {
-  // Remove FFI-specific types for web compatibility
-  dynamic _lib;
-  dynamic _context;
+  ffi.DynamicLibrary? _lib;
+  ffi.Pointer? _model;
+  ffi.Pointer? _context;
   bool _isInitialized = false;
+  final Logger _logger = Logger();
+  String? _modelPath;
 
   /// Load the native library
-  Future<void> initialize() async {
+  Future<void> initialize({String? modelPath}) async {
     if (_isInitialized) return;
 
     try {
-      // On web, we can't use native FFI, so use mock responses
+      // On web, we can't use native FFI, so skip initialization
       if (kIsWeb) {
-        print('Running on web - using mock AI responses');
+        _logger.i('Running on web - skipping FFI initialization');
         _isInitialized = true;
         return;
       }
 
-      // Load platform-specific library for native platforms
-      if (!kIsWeb && Platform.isAndroid) {
-        // _lib = DynamicLibrary.open('libllama.so');
-        print('Android native support not yet implemented - using mock responses');
-        _isInitialized = true;
-        return;
-      } else if (!kIsWeb && Platform.isIOS) {
-        // _lib = DynamicLibrary.process();
-        print('iOS native support not yet implemented - using mock responses');
-        _isInitialized = true;
-        return;
-      } else if (!kIsWeb && Platform.isMacOS) {
-        // For macOS, you would load a .dylib file
-        // _lib = DynamicLibrary.open('libllama.dylib');
-        print('macOS native support not yet implemented - using mock responses');
-        _isInitialized = true;
-        return;
-      } else if (!kIsWeb) {
-        print('Platform not yet supported - using mock responses');
-        _isInitialized = true;
-        return;
+      _logger.i('Initializing llama.cpp FFI...');
+      
+      // Load platform-specific library
+      if (dart_io.Platform.isAndroid) {
+        _lib = ffi.DynamicLibrary.open('libllama.so');
+      } else if (dart_io.Platform.isIOS) {
+        _lib = ffi.DynamicLibrary.process();
+      } else if (dart_io.Platform.isMacOS) {
+        _lib = ffi.DynamicLibrary.open('libllama.dylib');
+      } else if (dart_io.Platform.isLinux) {
+        _lib = ffi.DynamicLibrary.open('libllama.so');
+      } else if (dart_io.Platform.isWindows) {
+        _lib = ffi.DynamicLibrary.open('llama.dll');
+      } else {
+        throw UnsupportedError('Platform not supported');
       }
 
-      // Initialize the model
-      await _loadModel();
+      // Initialize the library
+      // TODO: Call llama_backend_init() when library is available
+      
+      // Load model if path provided
+      if (modelPath != null) {
+        await loadModel(modelPath);
+      }
+
       _isInitialized = true;
+      _logger.i('llama.cpp FFI initialized successfully');
     } catch (e) {
-      print('Failed to initialize llama.cpp, falling back to mock responses: $e');
-      _isInitialized = true; // Still mark as initialized to allow mock responses
+      _logger.w('Failed to initialize llama.cpp: $e');
+      _logger.i('Falling back to mock responses');
+      _isInitialized = true; // Mark as initialized to allow mock responses
     }
   }
 
-  /// Load the GGUF model
-  Future<void> _loadModel() async {
-    // On web, we don't need to load actual models
+  /// Load a GGUF model
+  Future<void> loadModel(String modelPath) async {
     if (kIsWeb) {
-      print('Web platform - skipping model loading');
+      _logger.w('Model loading not supported on web');
       return;
     }
 
-    // Get model path
-    final modelPath = await _getModelPath();
-    
-    // TODO: Implement actual FFI calls to llama.cpp
-    // This is a placeholder for the actual implementation
-    // You would need to bind to llama.cpp functions like:
-    // - llama_backend_init()
-    // - llama_model_load_from_file()
-    // - llama_new_context_with_model()
-    
-    print('Loading model from: $modelPath');
+    if (_lib == null) {
+      throw StateError('Library not loaded. Call initialize() first.');
+    }
+
+    try {
+      _logger.i('Loading model from: $modelPath');
+      _modelPath = modelPath;
+      
+      // TODO: Implement actual FFI calls to load the model
+      // This would involve:
+      // 1. Create model parameters
+      // 2. Call llama_model_load_from_file()
+      // 3. Create context with llama_new_context_with_model()
+      // 4. Store the model and context pointers
+      
+      // For now, just verify the file exists
+      final file = dart_io.File(modelPath);
+          
+      if (!await file.exists()) {
+        throw Exception('Model file not found at: $modelPath');
+      }
+      
+      _logger.i('Model loaded successfully (mock mode)');
+    } catch (e) {
+      _logger.e('Error loading model: $e');
+      rethrow;
+    }
   }
 
   /// Get the path to the model file
   Future<String> _getModelPath() async {
     // On web, return a placeholder path
     if (kIsWeb) {
-      return 'web://models/phi-3-mini.Q4_K_M.gguf';
+      return 'web://models/smollm-360m.gguf';
     }
 
     final appDir = await getApplicationDocumentsDirectory();
-    final modelPath = p.join(appDir.path, 'models', 'phi-3-mini.Q4_K_M.gguf');
-    
-    // For demo purposes, don't check file existence - just use mock responses
-    print('Model path would be: $modelPath - using mock responses for demo');
+    final modelPath = p.join(appDir.path, 'models', 'SmolLM-360M-Instruct-Q4_K_M.gguf');
     
     return modelPath;
   }

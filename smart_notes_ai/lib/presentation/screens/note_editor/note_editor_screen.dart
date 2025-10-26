@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../bloc/notes/notes_cubit.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../services/speech/speech_service.dart';
 
 class NoteEditorScreen extends StatefulWidget {
   final String? noteId;
@@ -30,6 +31,11 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   String? _aiSummary;
   List<String>? _aiInsights;
   List<String>? _aiKeyPoints;
+  
+  // Speech-to-text
+  final SpeechService _speechService = SpeechService();
+  bool _isListening = false;
+  String? _speechError;
 
   final List<String> _categories = [
     'Work',
@@ -48,12 +54,43 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     super.initState();
     _titleController = TextEditingController(text: widget.initialTitle ?? '');
     _contentController = TextEditingController(text: widget.initialContent ?? '');
+    _initializeSpeech();
+  }
+  
+  Future<void> _initializeSpeech() async {
+    final initialized = await _speechService.initialize();
+    if (!initialized && mounted) {
+      setState(() {
+        _speechError = 'Speech recognition not available';
+      });
+    }
+    
+    // Listen to speech service streams
+    _speechService.listeningStream.listen((isListening) {
+      if (mounted) {
+        setState(() {
+          _isListening = isListening;
+        });
+      }
+    });
+    
+    _speechService.errorStream.listen((error) {
+      if (mounted) {
+        setState(() {
+          _speechError = error;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error)),
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
     _titleController.dispose();
     _contentController.dispose();
+    _speechService.dispose();
     super.dispose();
   }
 
@@ -125,6 +162,75 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   void _removeTag(String tag) {
     setState(() => _tags.remove(tag));
   }
+  
+  Future<void> _toggleSpeechToText() async {
+    await _speechService.toggleListening(
+      onResult: (text, isFinal) {
+        // Get current cursor position
+        final currentText = _contentController.text;
+        final selection = _contentController.selection;
+        final cursorPos = selection.baseOffset;
+        
+        if (cursorPos >= 0) {
+          // Insert speech text at cursor position
+          final newText = currentText.substring(0, cursorPos) +
+              text +
+              currentText.substring(cursorPos);
+          
+          _contentController.value = TextEditingValue(
+            text: newText,
+            selection: TextSelection.collapsed(
+              offset: cursorPos + text.length,
+            ),
+          );
+        } else {
+          // If no cursor position, append to end
+          _contentController.text = currentText + ' ' + text;
+        }
+      },
+      continuous: false,
+    );
+  }
+  
+  Future<void> _showLanguageSelector() async {
+    final locales = await _speechService.getAvailableLocales();
+    
+    if (!mounted) return;
+    
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Select Language'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: locales.length,
+            itemBuilder: (context, index) {
+              final locale = locales[index];
+              final isSelected = locale.localeId == _speechService.currentLocale;
+              
+              return ListTile(
+                title: Text(locale.name),
+                subtitle: Text(locale.localeId),
+                trailing: isSelected ? const Icon(Icons.check) : null,
+                onTap: () {
+                  _speechService.setLocale(locale.localeId);
+                  Navigator.of(context).pop();
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -132,6 +238,13 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
       appBar: AppBar(
         title: Text(widget.noteId == null ? 'New Note' : 'Edit Note'),
         actions: [
+          // Language selector for speech-to-text
+          if (_speechService.isInitialized)
+            IconButton(
+              icon: const Icon(Icons.language),
+              onPressed: _showLanguageSelector,
+              tooltip: 'Select Language',
+            ),
           IconButton(
             icon: Icon(
               _isEncrypted ? Icons.lock : Icons.lock_open,
@@ -217,15 +330,36 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
-              child: TextField(
-                controller: _contentController,
-                decoration: const InputDecoration(
-                  hintText: 'Start typing...',
-                  border: InputBorder.none,
-                ),
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
+              child: Stack(
+                children: [
+                  TextField(
+                    controller: _contentController,
+                    decoration: const InputDecoration(
+                      hintText: 'Start typing or tap the mic button...',
+                      border: InputBorder.none,
+                    ),
+                    maxLines: null,
+                    expands: true,
+                    textAlignVertical: TextAlignVertical.top,
+                  ),
+                  // Microphone button overlay
+                  if (_speechService.isInitialized)
+                    Positioned(
+                      right: 8,
+                      bottom: 8,
+                      child: FloatingActionButton(
+                        mini: true,
+                        onPressed: _toggleSpeechToText,
+                        backgroundColor: _isListening
+                            ? Colors.red
+                            : Theme.of(context).primaryColor,
+                        child: Icon(
+                          _isListening ? Icons.mic : Icons.mic_none,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
